@@ -1,263 +1,158 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import random
 
-class EBikeAnomalyDetector:
-    def __init__(self):
-        self.model = None
-        self.scaler = StandardScaler()
-        
-    def generate_sample_data(self, n_samples=1000):
-        """Generate random eBike sensor data for demonstration"""
-        # Generate timestamps with random start time in the last month
-        start_date = datetime.now() - timedelta(days=random.randint(1, 30))
-        timestamps = [start_date + timedelta(minutes=i*random.randint(5, 15)) for i in range(n_samples)]
-        
-        # Generate base patterns with daily cycles
-        time_of_day = np.array([(t.hour + t.minute/60) for t in timestamps])
-        daily_pattern = np.sin(2 * np.pi * time_of_day / 24)
-        
-        # Normal operating parameters with realistic variations
-        motor_temp = []
-        battery_voltage = []
-        motor_rpm = []
-        current_draw = []
-        
-        for i in range(n_samples):
-            # Temperature varies with time of day and usage
-            base_temp = 45 + 20 * daily_pattern[i]  # Base temperature varies between 25-65°C
-            motor_temp.append(base_temp + random.gauss(0, 3))
-            
-            # Battery voltage decreases throughout the day
-            base_voltage = 42 - (i/n_samples) * 4  # Voltage drops from 42V to 38V
-            battery_voltage.append(base_voltage + random.gauss(0, 0.2))
-            
-            # RPM varies with terrain and rider input
-            base_rpm = 200 + 100 * abs(daily_pattern[i])
-            motor_rpm.append(base_rpm + random.gauss(0, 25))
-            
-            # Current draw correlates with RPM and temperature
-            base_current = 8 + (motor_rpm[-1]/250) * 4
-            current_draw.append(base_current + random.gauss(0, 1.5))
-        
-        # Convert to numpy arrays
-        motor_temp = np.array(motor_temp)
-        battery_voltage = np.array(battery_voltage)
-        motor_rpm = np.array(motor_rpm)
-        current_draw = np.array(current_draw)
-        
-        # Inject realistic anomalies
-        n_anomalies = int(n_samples * random.uniform(0.03, 0.07))  # 3-7% anomalies
-        anomaly_indices = random.sample(range(n_samples), n_anomalies)
-        
-        for idx in anomaly_indices:
-            anomaly_type = random.choice(['temp', 'voltage', 'rpm', 'current', 'combined'])
-            
-            if anomaly_type == 'temp' or anomaly_type == 'combined':
-                motor_temp[idx] += random.choice([-1, 1]) * random.uniform(15, 25)
-            
-            if anomaly_type == 'voltage' or anomaly_type == 'combined':
-                battery_voltage[idx] += random.choice([-1, 1]) * random.uniform(3, 6)
-            
-            if anomaly_type == 'rpm' or anomaly_type == 'combined':
-                motor_rpm[idx] *= random.uniform(0.3, 2.0)
-            
-            if anomaly_type == 'current' or anomaly_type == 'combined':
-                current_draw[idx] *= random.uniform(1.5, 2.5)
-        
-        # Create DataFrame with the generated data
-        df = pd.DataFrame({
-            'timestamp': timestamps,
-            'motor_temperature': motor_temp,
-            'battery_voltage': battery_voltage,
-            'motor_rpm': motor_rpm,
-            'current_draw': current_draw
-        })
-        
-        # Sort by timestamp
-        df = df.sort_values('timestamp').reset_index(drop=True)
-        
-        return df
+def generate_sample_sensor_data(n_samples=1000):
+    """Generate sample sensor data for demonstration"""
+    np.random.seed(42)
+    dates = pd.date_range(start='2024-01-01', periods=n_samples, freq='H')
     
-    def detect_anomalies(self, data):
-        """Detect anomalies in the sensor data"""
-        # Prepare features for anomaly detection
-        features = data[['motor_temperature', 'battery_voltage', 'motor_rpm', 'current_draw']]
+    # Normal operating ranges
+    temp_normal = np.random.normal(45, 5, n_samples)  # Battery temperature (°C)
+    voltage_normal = np.random.normal(36, 2, n_samples)  # Battery voltage (V)
+    current_normal = np.random.normal(10, 2, n_samples)  # Current draw (A)
+    
+    # Add some anomalies (5% of data)
+    n_anomalies = n_samples // 20
+    anomaly_idx = np.random.choice(n_samples, n_anomalies, replace=False)
+    
+    temp_normal[anomaly_idx] += np.random.normal(20, 5, n_anomalies)
+    voltage_normal[anomaly_idx] += np.random.normal(-5, 2, n_anomalies)
+    current_normal[anomaly_idx] += np.random.normal(15, 5, n_anomalies)
+    
+    data = pd.DataFrame({
+        'timestamp': dates,
+        'temperature': temp_normal,
+        'voltage': voltage_normal,
+        'current': current_normal
+    })
+    
+    return data
+
+def detect_anomalies(data, contamination=0.05):
+    """Detect anomalies in sensor data using Isolation Forest"""
+    # Prepare data for anomaly detection
+    features = ['temperature', 'voltage', 'current']
+    X = data[features]
         
         # Scale the features
-        scaled_features = self.scaler.fit_transform(features)
-        
-        # Calculate dynamic contamination based on data variance
-        feature_std = np.std(scaled_features, axis=0)
-        base_contamination = 0.05  # 5% base rate
-        variance_factor = np.mean(feature_std) / 2
-        contamination = min(max(base_contamination + variance_factor, 0.01), 0.15)
-        
-        # Initialize model with dynamic contamination
-        self.model = IsolationForest(
-            contamination=contamination,
-            random_state=None,
-            n_estimators=200,
-            max_samples='auto'
-        )
-        
-        # Fit the model and predict
-        predictions = self.model.fit_predict(scaled_features)
-        
-        # Add predictions and anomaly scores to the dataframe
-        data['anomaly'] = predictions
-        data['anomaly_score'] = self.model.score_samples(scaled_features)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Train Isolation Forest
+    iso_forest = IsolationForest(contamination=contamination, random_state=42)
+    anomalies = iso_forest.fit_predict(X_scaled)
+    
+    # Add anomaly predictions to the dataframe
+    data['is_anomaly'] = anomalies == -1
         
         return data
     
-    def plot_anomalies(self, data, feature):
-        """Create an interactive plot highlighting anomalies"""
-        fig = go.Figure()
-        
-        # Plot normal points
-        normal_data = data[data['anomaly'] == 1]
-        fig.add_trace(go.Scatter(
-            x=normal_data['timestamp'],
-            y=normal_data[feature],
-            mode='markers',
-            name='Normal',
-            marker=dict(
-                color=normal_data['anomaly_score'],
-                colorscale='Viridis',
-                size=6,
-                showscale=True,
-                colorbar=dict(title='Anomaly Score')
-            ),
-            hovertemplate=(
-                "<b>Time</b>: %{x}<br>" +
-                "<b>Value</b>: %{y:.2f}<br>" +
-                "<b>Score</b>: %{marker.color:.3f}<br>" +
-                "<extra></extra>"
-            )
-        ))
-        
-        # Plot anomalies
-        anomaly_data = data[data['anomaly'] == -1]
-        fig.add_trace(go.Scatter(
-            x=anomaly_data['timestamp'],
-            y=anomaly_data[feature],
-            mode='markers',
-            name='Anomaly',
-            marker=dict(
-                color='red',
-                size=10,
-                symbol='x'
-            ),
-            hovertemplate=(
-                "<b>Time</b>: %{x}<br>" +
-                "<b>Value</b>: %{y:.2f}<br>" +
-                "<extra></extra>"
-            )
-        ))
-        
-        fig.update_layout(
-            title=f'{feature} Over Time',
-            xaxis_title='Time',
-            yaxis_title=feature,
-            hovermode='closest',
-            showlegend=True,
-            legend=dict(
-                yanchor="top",
-                y=0.99,
-                xanchor="left",
-                x=0.01
-            )
-        )
-        
+def plot_sensor_data(data, sensor_type):
+    """Plot sensor data with anomalies highlighted"""
+    fig = px.scatter(
+        data,
+        x='timestamp',
+        y=sensor_type,
+        color='is_anomaly',
+        color_discrete_map={True: 'red', False: 'blue'},
+        title=f'{sensor_type.title()} Over Time',
+        labels={'is_anomaly': 'Is Anomaly'}
+    )
         return fig
 
 def main():
-    st.title("🔍 Bosch eBike Anomaly Detection")
+    st.title("eBike Anomaly Detection")
     st.write("""
-    This page analyzes sensor data from your eBike to detect potential anomalies 
-    that might indicate maintenance needs or system issues.
+    Monitor your eBike's sensor data and detect potential issues using machine learning.
+    This system uses an Isolation Forest algorithm to identify anomalous behavior in:
+    - Battery Temperature
+    - Voltage Levels
+    - Current Draw
     """)
     
-    # Initialize the anomaly detector
-    detector = EBikeAnomalyDetector()
+    # Sidebar controls
+    st.sidebar.header("Detection Settings")
+    contamination = st.sidebar.slider(
+        "Anomaly Threshold",
+        min_value=0.01,
+        max_value=0.20,
+        value=0.05,
+        help="Percentage of data points to be considered as anomalies"
+    )
     
-    # Generate or load data
-    st.subheader("Sensor Data Analysis")
+    # Generate or upload data
+    data_source = st.radio(
+        "Select Data Source",
+        ["Generate Sample Data", "Upload Sensor Data"]
+    )
     
-    # Add controls for data generation
-    col1, col2 = st.columns(2)
-    with col1:
-        n_samples = st.slider("Number of data points", 100, 2000, 1000, 100)
-    
-    if st.button("Generate Sample Data"):
-        data = detector.generate_sample_data(n_samples=n_samples)
-        st.session_state['sensor_data'] = data
-        st.session_state['processed_data'] = detector.detect_anomalies(data.copy())
-        
-        # Calculate actual contamination
-        anomaly_count = len(st.session_state['processed_data'][st.session_state['processed_data']['anomaly'] == -1])
-        contamination = anomaly_count / len(data)
-        st.success(f"Sample data generated and analyzed! Detected contamination rate: {contamination:.1%}")
-    
-    # If data exists in session state, show analysis
-    if 'processed_data' in st.session_state:
-        data = st.session_state['processed_data']
-        
-        # Summary statistics
-        st.subheader("Anomaly Detection Summary")
-        total_anomalies = len(data[data['anomaly'] == -1])
-        total_records = len(data)
-        anomaly_percentage = (total_anomalies / total_records) * 100
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total Anomalies", total_anomalies)
-        with col2:
-            st.metric("Total Records", total_records)
-        with col3:
-            st.metric("Anomaly Percentage", f"{anomaly_percentage:.1f}%")
-        
-        # Feature selection for plotting
-        feature = st.selectbox(
-            "Select sensor data to visualize:",
-            ['motor_temperature', 'battery_voltage', 'motor_rpm', 'current_draw']
+    if data_source == "Generate Sample Data":
+        n_samples = st.slider(
+            "Number of Data Points",
+            min_value=100,
+            max_value=5000,
+            value=1000
         )
-        
-        # Plot the selected feature
-        fig = detector.plot_anomalies(data, feature)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Detailed anomaly analysis
-        st.subheader("Detailed Anomaly Analysis")
-        anomaly_data = data[data['anomaly'] == -1].copy()
-        if not anomaly_data.empty:
-            anomaly_data['timestamp'] = anomaly_data['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            st.write("Recent anomalies detected:")
+        data = generate_sample_sensor_data(n_samples)
+    else:
+        uploaded_file = st.file_uploader(
+            "Upload sensor data CSV",
+            type=['csv'],
+            help="CSV should contain columns: timestamp, temperature, voltage, current"
+        )
+        if uploaded_file is not None:
+            try:
+                data = pd.read_csv(uploaded_file)
+                data['timestamp'] = pd.to_datetime(data['timestamp'])
+            except Exception as e:
+                st.error(f"Error reading file: {str(e)}")
+                return
+        else:
+            st.info("Please upload a CSV file or switch to sample data")
+            return
+    
+    # Detect anomalies
+    if st.button("Detect Anomalies"):
+        with st.spinner("Analyzing sensor data..."):
+            data_with_anomalies = detect_anomalies(data, contamination)
             
-            # Sort by anomaly score and show the most significant anomalies
-            anomaly_data['anomaly_score'] = abs(anomaly_data['anomaly_score'])
-            anomaly_data = anomaly_data.sort_values('anomaly_score', ascending=False)
-            st.dataframe(
-                anomaly_data[['timestamp', 'motor_temperature', 'battery_voltage', 
-                             'motor_rpm', 'current_draw', 'anomaly_score']].head(10)
+            # Display summary
+            n_anomalies = data_with_anomalies['is_anomaly'].sum()
+            st.metric(
+                "Detected Anomalies",
+                f"{n_anomalies} points",
+                f"{(n_anomalies/len(data)*100):.1f}% of data"
             )
             
-            # Recommendations based on anomalies
-            st.subheader("Recommendations")
-            if len(anomaly_data[anomaly_data['motor_temperature'] > 70]) > 0:
-                st.warning("⚠️ High motor temperature detected. Consider checking cooling system.")
-            if len(anomaly_data[anomaly_data['battery_voltage'] < 32]) > 0:
-                st.warning("⚠️ Low battery voltage detected. Battery might need inspection.")
-            if len(anomaly_data[anomaly_data['current_draw'] > 15]) > 0:
-                st.warning("⚠️ High current draw detected. Check for motor efficiency issues.")
-        else:
-            st.success("No anomalies detected in the current dataset!")
+            # Plot each sensor's data
+            st.subheader("Temperature Analysis")
+            st.plotly_chart(plot_sensor_data(data_with_anomalies, 'temperature'))
+            
+            st.subheader("Voltage Analysis")
+            st.plotly_chart(plot_sensor_data(data_with_anomalies, 'voltage'))
+            
+            st.subheader("Current Analysis")
+            st.plotly_chart(plot_sensor_data(data_with_anomalies, 'current'))
+            
+            # Anomaly details
+            if n_anomalies > 0:
+                st.subheader("Anomaly Details")
+                anomalies = data_with_anomalies[data_with_anomalies['is_anomaly']]
+                st.dataframe(anomalies)
+                
+                # Download anomaly report
+                csv = anomalies.to_csv(index=False)
+                st.download_button(
+                    "Download Anomaly Report",
+                    csv,
+                    "anomaly_report.csv",
+                    "text/csv",
+                    key='download-csv'
+                )
 
 if __name__ == "__main__":
     main() 

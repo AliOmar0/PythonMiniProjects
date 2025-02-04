@@ -1,68 +1,72 @@
+import streamlit as st
 import speech_recognition as sr
-import sys
-import time
+from io import BytesIO
+import tempfile
+import os
 
-def listen_and_convert():
+def transcribe_audio(audio_file):
+    """Transcribe audio file to text using Google Speech Recognition"""
     # Initialize recognizer
-    recognizer = sr.Recognizer()
+    r = sr.Recognizer()
     
-    # Use the default microphone as the audio source
-    with sr.Microphone() as source:
-        print("\nListening... Speak now!")
-        
-        # Adjust for ambient noise
-        recognizer.adjust_for_ambient_noise(source, duration=1)
-        
-        try:
-            # Listen for audio input
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=None)
-            print("Processing... Please wait.")
-            
-            try:
-                # Use Google Speech Recognition to convert audio to text
-                text = recognizer.recognize_google(audio)
-                print("\nYou said:", text)
-                return text
-                
-            except sr.UnknownValueError:
-                print("Sorry, I couldn't understand what you said.")
-                return None
-                
-            except sr.RequestError as e:
-                print(f"Could not request results from speech recognition service; {e}")
-                return None
-                
-        except sr.WaitTimeoutError:
-            print("No speech detected within timeout period.")
-            return None
-
-def main():
-    print("=" * 50)
-    print("Speech-to-Text Converter")
-    print("=" * 50)
-    print("\nThis program will convert your speech to text.")
-    print("Press Ctrl+C to exit.")
+    # Create temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
+        tmp_file.write(audio_file.getvalue())
+        tmp_file_path = tmp_file.name
     
     try:
-        while True:
-            result = listen_and_convert()
-            if result:
-                print("\nWould you like to continue? (y/n)")
-                response = input().lower()
-                if response != 'y':
-                    print("\nThank you for using Speech-to-Text Converter!")
-                    break
-            else:
-                print("\nWould you like to try again? (y/n)")
-                response = input().lower()
-                if response != 'y':
-                    print("\nThank you for using Speech-to-Text Converter!")
-                    break
-            print("\n" + "=" * 50)
+        # Load audio file
+        with sr.AudioFile(tmp_file_path) as source:
+            # Record audio
+            audio = r.record(source)
             
-    except KeyboardInterrupt:
-        print("\n\nProgram terminated by user.")
-        sys.exit(0)
+            # Recognize speech using Google Speech Recognition
+            text = r.recognize_google(audio)
+            return text
+    except sr.UnknownValueError:
+        return "Speech Recognition could not understand the audio"
+    except sr.RequestError as e:
+        return f"Could not request results from Speech Recognition service; {e}"
+    finally:
+        # Clean up temporary file
+        os.unlink(tmp_file_path)
+
+def main():
+    st.title("Speech to Text Converter")
+    st.write("""
+    Convert your speech to text using Google's Speech Recognition.
+    Upload an audio file (WAV format) or record directly from your microphone.
+    """)
+    
+    # File uploader for audio files
+    audio_file = st.file_uploader("Upload an audio file", type=['wav'])
+    
+    if audio_file is not None:
+        st.audio(audio_file)
+        
+        if st.button("Transcribe Audio"):
+            with st.spinner("Transcribing..."):
+                transcription = transcribe_audio(audio_file)
+                
+            st.subheader("Transcription:")
+            st.write(transcription)
+            
+            # Option to copy transcription
+            st.text_area("Copy transcription:", transcription)
+    
+    st.markdown("---")
+    st.markdown("""
+    ### Instructions:
+    1. Upload a WAV audio file using the file uploader above
+    2. Click the "Transcribe Audio" button
+    3. Wait for the transcription to complete
+    4. Copy the transcribed text from the text area
+    
+    ### Note:
+    - Make sure your audio is clear and has minimal background noise
+    - The audio file must be in WAV format
+    - Internet connection is required for transcription
+    """)
 
 if __name__ == "__main__":
     main() 
