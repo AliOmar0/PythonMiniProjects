@@ -100,10 +100,25 @@ def init_styles():
 def record_from_mic(duration=5):
     """Record audio from microphone and transcribe"""
     r = sr.Recognizer()
-    with sr.Microphone() as source:
+    
+    # Clear any previous recording state
+    if 'recording_complete' in st.session_state:
+        del st.session_state.recording_complete
+    if 'transcription' in st.session_state:
+        del st.session_state.transcription
+    
+    # Adjust recognition parameters for better accuracy
+    r.dynamic_energy_threshold = True
+    r.energy_threshold = 300
+    r.pause_threshold = 0.8
+    r.phrase_threshold = 0.3
+    r.non_speaking_duration = 0.5
+    
+    with sr.Microphone(sample_rate=48000) as source:
         # Display recording status
         st.markdown('<div class="status-box info-box">🎤 Adjusting for ambient noise...</div>', unsafe_allow_html=True)
-        r.adjust_for_ambient_noise(source, duration=1)
+        # Longer ambient noise adjustment for better accuracy
+        r.adjust_for_ambient_noise(source, duration=2)
         
         st.markdown('<div class="status-box info-box">🎙️ Recording... Speak now!</div>', unsafe_allow_html=True)
         try:
@@ -116,25 +131,35 @@ def record_from_mic(duration=5):
             audio = r.listen(source, timeout=duration, phrase_time_limit=duration)
             st.markdown('<div class="status-box info-box">🔍 Processing speech...</div>', unsafe_allow_html=True)
             
-            # Try multiple recognition services
+            # Try multiple recognition services with error handling
             text = None
-            error_message = ""
+            error_messages = []
             
+            # Try Google Speech Recognition first (most accurate)
             try:
-                text = r.recognize_google(audio)
+                text = r.recognize_google(audio, show_all=False)
             except sr.RequestError as e:
-                error_message += f"Google Speech Recognition error; {str(e)}\n"
+                error_messages.append(f"Google Speech Recognition error; {str(e)}")
+            except sr.UnknownValueError:
+                error_messages.append("Google Speech Recognition could not understand the audio")
             
+            # If Google fails, try Sphinx
             if not text:
                 try:
                     text = r.recognize_sphinx(audio)
-                except:
-                    error_message += "Sphinx Recognition error\n"
+                except Exception as e:
+                    error_messages.append(f"Sphinx Recognition error: {str(e)}")
             
+            # Store results in session state
             if text:
+                st.session_state.recording_complete = True
+                st.session_state.transcription = text
                 return True, text
             else:
-                return False, "Could not recognize speech. " + error_message
+                error_msg = "\n".join(error_messages)
+                st.session_state.recording_complete = True
+                st.session_state.transcription = ""
+                return False, f"Could not recognize speech. Errors:\n{error_msg}"
                 
         except sr.WaitTimeoutError:
             return False, "No speech detected within timeout"
@@ -220,7 +245,24 @@ def main():
                            value=5,
                            help="Select how long you want to record")
         
-        if st.button("Start Recording", key="record_btn", use_container_width=True):
+        # Initialize session state for recording status if not exists
+        if 'recording_complete' not in st.session_state:
+            st.session_state.recording_complete = False
+        
+        # Add a reset button if recording is complete
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            start_button = st.button("Start Recording", 
+                                   key="record_btn", 
+                                   use_container_width=True,
+                                   disabled=st.session_state.recording_complete)
+        with col2:
+            if st.session_state.recording_complete:
+                if st.button("New Recording", key="reset_btn", use_container_width=True):
+                    st.session_state.recording_complete = False
+                    st.rerun()
+        
+        if start_button and not st.session_state.recording_complete:
             success, transcription = record_from_mic(duration)
             
             if success:
@@ -276,17 +318,19 @@ def main():
         2. Click the "Start Recording" button
         3. Speak clearly into your microphone
         4. Wait for the transcription to complete
+        5. Click "New Recording" to start over
         
         <h4>Using File Upload:</h4>
         1. Upload a WAV audio file using the file uploader
         2. Click the "Transcribe Audio" button
         3. Wait for the transcription to complete
         
-        <h4>Notes:</h4>
-        • When using microphone, speak clearly and minimize background noise
-        • For file upload, audio must be in WAV format
-        • Internet connection is required for optimal transcription
-        • If one recognition service fails, another will be attempted automatically
+        <h4>Tips for Better Recognition:</h4>
+        • Speak clearly and at a normal pace
+        • Minimize background noise
+        • Keep the microphone at a consistent distance
+        • Use proper pronunciation and enunciation
+        • If recognition fails, try adjusting your speaking volume
         </div>
     """, unsafe_allow_html=True)
 

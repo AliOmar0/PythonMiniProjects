@@ -1,1 +1,0 @@
-Welcome to the text to speech converter! This is a sample text that will be converted to speech. 

@@ -19,12 +19,12 @@ def search_movie(query):
     
     try:
         response = requests.get(search_url, headers=headers)
-        response.raise_for_status()  # Raise an exception for bad status codes
+        response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
         results = []
-        # Find all search result items
-        for item in soup.select('li.ipc-metadata-list-summary-item'):
+        # Find all search result items (limit to first 5)
+        for item in list(soup.select('li.ipc-metadata-list-summary-item'))[:5]:
             # Extract title and year
             title_elem = item.select_one('a.ipc-metadata-list-summary-item__t')
             if title_elem:
@@ -49,7 +49,6 @@ def search_movie(query):
 
 def get_movie_details(movie_id):
     """Get detailed information about a movie"""
-    # Use IMDB's data API endpoint
     url = f"https://www.imdb.com/title/{movie_id}/"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -57,22 +56,18 @@ def get_movie_details(movie_id):
     }
     
     try:
-        # First get the JSON data URL from the page
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Find the script tag containing the JSON data
         script_tag = soup.find('script', {'type': 'application/json', 'id': '__NEXT_DATA__'})
         
         if script_tag:
             json_data = json.loads(script_tag.string)
-            # Navigate to the movie data in the JSON structure
             try:
                 movie_data = json_data['props']['pageProps']['mainColumnData']
             except Exception as e:
                 try:
-                    # Try alternative data path
                     movie_data = json_data['props']['pageProps']['aboveTheFoldData']
                 except Exception as e:
                     return {
@@ -81,6 +76,7 @@ def get_movie_details(movie_id):
                         'year': "N/A",
                         'duration': "N/A",
                         'director': "N/A",
+                        'genres': "N/A",
                         'plot': "Could not fetch movie details"
                     }
             
@@ -92,19 +88,16 @@ def get_movie_details(movie_id):
             except:
                 details['title'] = 'N/A'
             
-            # Extract rating
+            # Extract rating and votes
             try:
                 rating = None
                 total_votes = None
                 
-                # First try JSON data
                 rating_summary = movie_data.get('ratingsSummary', {})
                 if isinstance(rating_summary, dict):
-                    # Try to get rating from JSON
                     rating = rating_summary.get('aggregateRating')
                     total_votes = rating_summary.get('voteCount')
                 
-                # If no rating found in JSON, try HTML fallback
                 if not rating:
                     rating_elem = soup.select_one('div[data-testid="hero-rating-bar__aggregate-rating__score"]')
                     if rating_elem:
@@ -115,7 +108,6 @@ def get_movie_details(movie_id):
                             except:
                                 pass
                     
-                    # Try to get vote count from HTML
                     if rating and not total_votes:
                         votes_elem = soup.select_one('div[data-testid="hero-rating-bar__aggregate-rating__score"] + div')
                         if votes_elem:
@@ -129,7 +121,6 @@ def get_movie_details(movie_id):
                 
                 release_date = movie_data.get('releaseDate', {})
                 
-                # Check if it's an upcoming movie
                 if release_date and isinstance(release_date, dict):
                     release_day = release_date.get('day')
                     release_month = release_date.get('month')
@@ -138,28 +129,23 @@ def get_movie_details(movie_id):
                     if all([release_day, release_month, release_year]):
                         movie_date = datetime(release_year, release_month, release_day)
                         if movie_date > datetime.now():
-                            # Future release - show release date
                             month_name = datetime(2000, release_month, 1).strftime('%B')
                             details['rating'] = f"Coming {month_name} {release_day}, {release_year}"
                         elif rating:
-                            # Past movie with rating
                             details['rating'] = f"{rating}/10 ({total_votes:,} votes)" if total_votes else f"{rating}/10"
                         else:
                             details['rating'] = "Rating not available"
                     elif release_year and int(release_year) > datetime.now().year:
                         details['rating'] = f"Coming in {release_year}"
                     elif rating:
-                        # Past movie with rating
                         details['rating'] = f"{rating}/10 ({total_votes:,} votes)" if total_votes else f"{rating}/10"
                     else:
                         details['rating'] = "Rating not available"
                 elif rating:
-                    # Movie has rating but no release date
                     details['rating'] = f"{rating}/10 ({total_votes:,} votes)" if total_votes else f"{rating}/10"
                 else:
                     details['rating'] = "Rating not available"
             except Exception as e:
-                st.write("Debug - Rating Error:", str(e))
                 details['rating'] = 'Rating not available'
             
             # Extract year
@@ -205,6 +191,34 @@ def get_movie_details(movie_id):
                 details['director'] = ', '.join(directors) if directors else "N/A"
             except:
                 details['director'] = 'N/A'
+            
+            # Extract genres
+            try:
+                genres = []
+                # Try to get genres from JSON data
+                genres_data = movie_data.get('genres', {}).get('genres', [])
+                if isinstance(genres_data, list):
+                    for genre in genres_data:
+                        if isinstance(genre, dict) and genre.get('text'):
+                            genres.append(genre['text'])
+                
+                # If no genres found in JSON, try alternate JSON path
+                if not genres:
+                    genres_data = movie_data.get('titleGenres', {}).get('genres', [])
+                    if isinstance(genres_data, list):
+                        for genre in genres_data:
+                            if isinstance(genre, dict) and genre.get('text'):
+                                genres.append(genre['text'])
+                
+                # If still no genres, try HTML fallback
+                if not genres:
+                    genres_elem = soup.select('a.ipc-chip--on-baseAlt')
+                    if genres_elem:
+                        genres = [genre.text.strip() for genre in genres_elem]
+                
+                details['genres'] = ', '.join(genres) if genres else "N/A"
+            except:
+                details['genres'] = 'N/A'
             
             # Extract plot
             try:
@@ -287,7 +301,6 @@ def get_movie_details(movie_id):
                         if all([release_year, release_month, release_day]):
                             movie_date = datetime(release_year, release_month, release_day)
                             if movie_date > datetime.now():
-                                # It's an upcoming movie
                                 plot = f"'{movie_data['titleText']['text']}' is an upcoming movie directed by {details.get('director', 'N/A')}."
                                 if movie_data.get('productionStatus', {}).get('text'):
                                     plot += f" Current status: {movie_data['productionStatus']['text']}."
@@ -299,9 +312,8 @@ def get_movie_details(movie_id):
             
             return details
         else:
-            # Fallback to the old HTML scraping method if JSON data is not found
+            # Fallback to HTML scraping
             details = {}
-            
             try:
                 # Get title
                 title_elem = soup.select_one('h1[data-testid="hero__pageTitle"]')
@@ -336,7 +348,7 @@ def get_movie_details(movie_id):
                         break
                 details['duration'] = duration if duration else "N/A"
                 
-                # Get director from metadata
+                # Get director
                 director = None
                 metadata_items = soup.find_all('div', class_='sc-fa02f843-0')
                 for item in metadata_items:
@@ -347,6 +359,15 @@ def get_movie_details(movie_id):
                             break
                 details['director'] = director if director else "N/A"
                 
+                # Get genres
+                genres = []
+                genres_elem = soup.select('a.ipc-chip--on-baseAlt')
+                if not genres_elem:
+                    genres_elem = soup.select('span.ipc-chip__text')
+                if genres_elem:
+                    genres = [genre.text.strip() for genre in genres_elem]
+                details['genres'] = ', '.join(genres) if genres else "N/A"
+                
                 # Get plot
                 plot_elem = soup.select_one('span[data-testid="plot-xl"]')
                 if not plot_elem:
@@ -356,7 +377,6 @@ def get_movie_details(movie_id):
                 details['plot'] = plot_elem.text.strip() if plot_elem else "N/A"
                 
                 return details
-                
             except Exception as e:
                 st.error(f"Error in HTML fallback: {str(e)}")
                 return {
@@ -365,6 +385,7 @@ def get_movie_details(movie_id):
                     'year': "N/A",
                     'duration': "N/A",
                     'director': "N/A",
+                    'genres': "N/A",
                     'plot': "Could not fetch movie details"
                 }
             
@@ -376,6 +397,7 @@ def get_movie_details(movie_id):
             'year': "N/A",
             'duration': "N/A",
             'director': "N/A",
+            'genres': "N/A",
             'plot': "Could not fetch movie details"
         }
 
@@ -444,6 +466,7 @@ def main():
                         
                         with col2:
                             st.write("**Director:**", details['director'])
+                            st.write("**Genres:**", details['genres'])
                         
                         st.write("**Plot:**")
                         st.write(details['plot'])
