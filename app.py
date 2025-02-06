@@ -49,7 +49,7 @@ PROJECT_DESCRIPTIONS = {
         "description": "Convert spoken words into text using Google's Speech Recognition.",
         "main_file": "SpeechToTxt.py",
         "requires_direct_run": False,
-        "requirements": ["streamlit", "SpeechRecognition", "PyAudio", "pocketsphinx", "numpy"]
+        "requirements": ["SpeechRecognition"]
     },
     "TextToSpeech": {
         "title": "Text to Speech Converter",
