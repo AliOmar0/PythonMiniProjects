@@ -49,7 +49,7 @@ def detect_anomalies(data, contamination=0.05):
     # Add anomaly predictions to the dataframe
     data['is_anomaly'] = anomalies == -1
         
-        return data
+    return data
     
 def plot_sensor_data(data, sensor_type):
     """Plot sensor data with anomalies highlighted"""
@@ -62,7 +62,7 @@ def plot_sensor_data(data, sensor_type):
         title=f'{sensor_type.title()} Over Time',
         labels={'is_anomaly': 'Is Anomaly'}
     )
-        return fig
+    return fig
 
 def main():
     st.title("eBike Anomaly Detection")

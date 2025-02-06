@@ -45,14 +45,14 @@ PROJECT_DESCRIPTIONS = {
         "requirements": ["beautifulsoup4", "requests", "pandas"]
     },
     "SpeechToText": {
-        "title": "Speech-to-Text Converter",
+        "title": "Speech to Text Converter",
         "description": "Convert spoken words into text using Google's Speech Recognition.",
         "main_file": "SpeechToTxt.py",
         "requires_direct_run": False,
-        "requirements": ["SpeechRecognition"]
+        "requirements": ["streamlit", "SpeechRecognition", "PyAudio", "pocketsphinx", "numpy"]
     },
     "TextToSpeech": {
-        "title": "Text-to-Speech Converter",
+        "title": "Text to Speech Converter",
         "description": "Convert written text into spoken words with multiple voice options.",
         "main_file": "text_to_speech.py",
         "requires_direct_run": False,
@@ -152,12 +152,26 @@ def main():
     # Get available project directories
     project_dirs = [d for d in os.listdir() if os.path.isdir(d) and d in PROJECT_DESCRIPTIONS]
     
+    # Initialize navigation state if needed
+    if "nav_target" not in st.session_state:
+        st.session_state.nav_target = "Home"
+    
     # Create selection in sidebar
+    if st.session_state.nav_target == "Home":
+        index = 0
+    else:
+        # Add 1 to account for "Home" being the first item
+        index = project_dirs.index(st.session_state.nav_target) + 1
+    
     selected_project = st.sidebar.selectbox(
         "Select a Project",
         ["Home"] + project_dirs,
-        format_func=lambda x: "Home" if x == "Home" else PROJECT_DESCRIPTIONS[x]["title"]
+        format_func=lambda x: "Home" if x == "Home" else PROJECT_DESCRIPTIONS[x]["title"],
+        index=index
     )
+    
+    # Update navigation target based on selectbox
+    st.session_state.nav_target = selected_project
     
     if selected_project == "Home":
         # Display project cards in a grid
@@ -168,10 +182,8 @@ def main():
             with (col1 if idx % 2 == 0 else col2):
                 with st.expander(f"📁 {project['title']}", expanded=True):
                     st.markdown(f"**{project['description']}**")
-                    if "requirements" in project:
-                        st.caption(f"Required packages: {', '.join(project['requirements'])}")
                     if st.button(f"Open {project['title']}", key=f"btn_{project_dir}"):
-                        st.session_state["selected_project"] = project_dir
+                        st.session_state.nav_target = project_dir
                         st.rerun()
     
     else:

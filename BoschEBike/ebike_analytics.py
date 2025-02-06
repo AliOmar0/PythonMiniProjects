@@ -194,9 +194,9 @@ def main():
             assist = st.selectbox(
                 "Assist Level",
                 list(ASSIST_LEVELS.keys())
-        )
+            )
 
-    with col2:
+        with col2:
             weight = st.number_input(
                 "Rider Weight (kg)",
                 min_value=40,
@@ -206,7 +206,7 @@ def main():
             
             battery_health = st.slider(
                 "Battery Health (%)",
-            min_value=0, 
+                min_value=0, 
                 max_value=100,
                 value=100
             )
