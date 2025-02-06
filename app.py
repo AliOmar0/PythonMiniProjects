@@ -182,6 +182,12 @@ def main():
             with (col1 if idx % 2 == 0 else col2):
                 with st.expander(f"📁 {project['title']}", expanded=True):
                     st.markdown(f"**{project['description']}**")
+                    
+                    # Check if there are any missing packages
+                    missing_packages = check_requirements(project)
+                    if missing_packages:
+                        st.warning(f"Missing required packages: {', '.join(missing_packages)}")
+                    
                     if st.button(f"Open {project['title']}", key=f"btn_{project_dir}"):
                         st.session_state.nav_target = project_dir
                         st.rerun()
