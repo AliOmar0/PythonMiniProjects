@@ -28,7 +28,8 @@ def pixels_to_ascii(image):
     ascii_str = ""
     for row in pixels:
         for pixel in row:
-            ascii_str += ASCII_CHARS[pixel * len(ASCII_CHARS) // 256]
+            index = pixel * (len(ASCII_CHARS) - 1) // 255
+            ascii_str += ASCII_CHARS[index]
         ascii_str += "\n"
     return ascii_str
 
